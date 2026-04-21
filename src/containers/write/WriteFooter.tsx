@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { UseFormHandleSubmit } from "react-hook-form";
 import { PostInput } from "@/lib/validation";
 import { useModalStore } from "@/store/modal";
@@ -21,6 +21,8 @@ export default function WriteFooter({
   handleSubmit: UseFormHandleSubmit<PostInput>;
   isSubmitting: boolean;
 }) {
+  const [isPending, setIsPending] = useState(false);
+
   const { toggleModal } = useModalStore();
   const router = useRouter();
   const { setIsLoadingTrue, setIsLoadingFalse } = useLoadingStore();
@@ -83,7 +85,7 @@ export default function WriteFooter({
     }
   };
 
-  const onSubmit = async () => {
+  const submitDocument = async () => {
     if (selectedOption === "") return alert("카테고리를 선택해주세요");
 
     if (selectedOption === "공지사항" || selectedOption === "활동") {
@@ -117,15 +119,27 @@ export default function WriteFooter({
     }
   };
 
+  const onValid = async () => {
+    if (isPending) return;
+    setIsPending(true);
+    try {
+      await submitDocument();
+    } catch (error) {
+      console.error("[WriteFooter] 제출 오류:", error);
+    } finally {
+      setIsPending(false);
+    }
+  };
+
   return (
     <footer className="gap-4 h-[5.25rem] w-full fixed bottom-0 left-0 right-0 pl-15 pr-15 flex justify-end text-white items-center">
       <button
         type="submit"
-        onClick={handleSubmit(onSubmit)}
-        disabled={isSubmitting}
+        onClick={handleSubmit(onValid)}
+        disabled={isSubmitting || isPending}
         className="bg-[#ED9735] text-white font-bold cursor-pointer h-[2.5rem] w-[6.5rem] rounded-[0.625rem] border-2 border-[#ED9735] text-sm flex justify-center items-center disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        {isSubmitting ? "등록 중..." : "등록하기"}
+        {isSubmitting || isPending ? "등록 중..." : "등록하기"}
       </button>
     </footer>
   );
