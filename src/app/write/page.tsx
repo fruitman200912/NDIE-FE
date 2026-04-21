@@ -1,6 +1,9 @@
 "use client";
 import { Suspense } from "react";
 import React, { useRef, useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { postSchema, PostInput } from "@/lib/validation";
 import ContentInputScreen from "@/containers/write/ContentInputScreen";
 import ContentOutputScreen from "@/containers/write/ContentOutputScreen";
 import WriteFooter from "@/containers/write/WriteFooter";
@@ -21,6 +24,12 @@ export default function Write() {
 
   const { uid, isLoading: authLoading, isInitialized } = useAuthStore();
   const router = useRouter();
+
+  const { handleSubmit, formState: { errors, isSubmitting } } = useForm<PostInput>({
+    resolver: zodResolver(postSchema),
+    values: { title, content },
+    mode: "onChange",
+  });
 
   const addText = (num: string, position: number) => {
     if (content.length > 0) setContent((prevText) => prevText + "\n" + num);
@@ -64,11 +73,18 @@ export default function Write() {
           selectedOption={selectedOption}
           addText={addText}
           contentRef={contentRef}
+          errors={errors}
         />
       </Suspense>
 
       <ContentOutputScreen title={title} content={content} />
-      <WriteFooter title={title} content={content} selectedOption={selectedOption} />
+      <WriteFooter
+        title={title}
+        content={content}
+        selectedOption={selectedOption}
+        handleSubmit={handleSubmit}
+        isSubmitting={isSubmitting}
+      />
       <FileInput addText={addText} content={content} fileRef={fileRef} />
       <Suspense fallback={<Loading />}>
         <WriteModalScreen title={title} content={content} />

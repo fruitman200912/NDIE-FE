@@ -12,6 +12,8 @@ import UnderLine from "@/assets/write/underline.svg";
 import ImgGray from "@/assets/write/imgGraymini.svg";
 import Img from "@/assets/write/img.svg";
 import React, { RefObject, useState } from "react";
+import { FieldErrors } from "react-hook-form";
+import { PostInput } from "@/lib/validation";
 
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -24,7 +26,8 @@ export default function ContentInputScreen(
     setTitle,
     fileRef,
     addText,
-    contentRef
+    contentRef,
+    errors,
   }:
     {
       title: string,
@@ -35,7 +38,8 @@ export default function ContentInputScreen(
       setTitle: React.Dispatch<React.SetStateAction<string>>,
       fileRef: RefObject<HTMLInputElement | null>;
       addText: (text: string, index: number) => void,
-      contentRef: RefObject<HTMLTextAreaElement | null>
+      contentRef: RefObject<HTMLTextAreaElement | null>,
+      errors?: FieldErrors<PostInput>,
     }
 ) {
 
@@ -107,13 +111,18 @@ export default function ContentInputScreen(
           </div>
         </div>
       </section>
-      <input
-        className={"w-full h-12 text-3xl font-semibold mb-4 outline-none"}
-        placeholder={"제목을 입력해주세요"}
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        spellCheck="false"
-      />
+      <div className="w-full">
+        <input
+          className={"w-full h-12 text-3xl font-semibold outline-none"}
+          placeholder={"제목을 입력해주세요"}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          spellCheck="false"
+        />
+        {errors?.title && (
+          <p className="text-red-500 text-sm mt-1">{errors.title.message}</p>
+        )}
+      </div>
       <div className="w-full overflow-scroll flex justify-center border-y-[1.5px] border-[#838383]  select-none">
         <div className="flex">
           <div
@@ -206,17 +215,20 @@ export default function ContentInputScreen(
           </div>
         </div>
       </div>
-      <textarea
-        className={"w-full h-full resize-none outline-none"}
-        onKeyDown={(e) => handleDown(e)}
-        placeholder={"내용을 입력해주세요"}
-        value={content}
-        ref={contentRef}
-        onChange={(e) => {
-          handleInput(e)
-        }}
-        spellCheck="false"
-      />
+      <div className="w-full h-full flex flex-col">
+        <textarea
+          className={"w-full h-full resize-none outline-none"}
+          onKeyDown={(e) => handleDown(e)}
+          placeholder={"내용을 입력해주세요"}
+          value={content}
+          ref={contentRef}
+          onChange={(e) => handleInput(e)}
+          spellCheck="false"
+        />
+        {errors?.content && (
+          <p className="text-red-500 text-sm mt-1">{errors.content.message}</p>
+        )}
+      </div>
     </div>
 
   )
