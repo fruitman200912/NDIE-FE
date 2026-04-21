@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { getFirebaseDb } from "@/lib/firebase";
 
 type OrgNode = {
@@ -14,8 +14,11 @@ const defaultData: OrgNode = {
   child: [],
 };
 
+const MAX_HISTORY = 20;
+
 export default function OrgChartEditor() {
   const [data, setData] = useState<OrgNode>(defaultData);
+  const [history, setHistory] = useState<OrgNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedPath, setSelectedPath] = useState<number[] | null>(null);
@@ -27,6 +30,18 @@ export default function OrgChartEditor() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  const handleUndoRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+        e.preventDefault();
+        handleUndoRef.current();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   const loadData = async () => {
@@ -62,6 +77,32 @@ export default function OrgChartEditor() {
     }
   };
 
+  const pushHistory = (currentData: OrgNode) => {
+    setHistory((prev) => {
+      const next = [...prev, JSON.parse(JSON.stringify(currentData))];
+      return next.length > MAX_HISTORY ? next.slice(-MAX_HISTORY) : next;
+    });
+  };
+
+  const handleUndo = () => {
+    setHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const restored = prev[prev.length - 1];
+      setData(restored);
+      setSelectedPath(null);
+      return prev.slice(0, -1);
+    });
+  };
+  handleUndoRef.current = handleUndo;
+
+  const countDescendants = (node: OrgNode): number => {
+    if (!node.child || node.child.length === 0) return 0;
+    return node.child.reduce(
+      (sum, child) => sum + 1 + countDescendants(child),
+      0
+    );
+  };
+
   const updateNode = (path: number[], field: "name", value: string) => {
     const newData = JSON.parse(JSON.stringify(data));
     let node = newData;
@@ -81,6 +122,7 @@ export default function OrgChartEditor() {
   };
 
   const addChild = (path: number[]) => {
+    pushHistory(data);
     const newData = JSON.parse(JSON.stringify(data));
     let node = newData;
     for (const idx of path) {
@@ -93,6 +135,24 @@ export default function OrgChartEditor() {
 
   const deleteNode = (path: number[]) => {
     if (path.length === 0) return;
+
+    let target: OrgNode = data;
+    for (let i = 0; i < path.length - 1; i++) {
+      target = target.child![path[i]];
+    }
+    target = target.child![path[path.length - 1]];
+
+    const descendantCount = countDescendants(target);
+
+    if (descendantCount > 0) {
+      const confirmed = confirm(
+        `'${target.name}' 노드와 하위 ${descendantCount}개의 노드가 모두 삭제됩니다.\n계속하시겠습니까?`
+      );
+      if (!confirmed) return;
+    }
+
+    pushHistory(data);
+
     const newData = JSON.parse(JSON.stringify(data));
     let parent = newData;
     for (let i = 0; i < path.length - 1; i++) {
@@ -105,6 +165,7 @@ export default function OrgChartEditor() {
 
   const addSiblingLeft = (path: number[]) => {
     if (path.length === 0) return;
+    pushHistory(data);
     const newData = JSON.parse(JSON.stringify(data));
     let parent = newData;
     for (let i = 0; i < path.length - 1; i++) {
@@ -118,6 +179,7 @@ export default function OrgChartEditor() {
 
   const addSiblingRight = (path: number[]) => {
     if (path.length === 0) return;
+    pushHistory(data);
     const newData = JSON.parse(JSON.stringify(data));
     let parent = newData;
     for (let i = 0; i < path.length - 1; i++) {
@@ -140,6 +202,7 @@ export default function OrgChartEditor() {
     if (toStr.startsWith(fromStr) || fromStr === toStr) return;
 
     try {
+      pushHistory(data);
       const newData = JSON.parse(JSON.stringify(data));
       let fromParent = newData;
       for (let i = 0; i < fromPath.length - 1; i++) {
@@ -167,17 +230,23 @@ export default function OrgChartEditor() {
         }
         if (!toParent.child) return;
         const toIndex = toPath[toPath.length - 1];
-        const sameParent = fromPath.slice(0, -1).join("-") === toPath.slice(0, -1).join("-");
+        const sameParent =
+          fromPath.slice(0, -1).join("-") === toPath.slice(0, -1).join("-");
         fromParent.child.splice(fromIndex, 1);
         let adjustedToIndex = toIndex;
         if (sameParent && fromIndex < toIndex) {
           adjustedToIndex = toIndex - 1;
         }
-        const insertIndex = position === "left" ? adjustedToIndex : adjustedToIndex + 1;
+        const insertIndex =
+          position === "left" ? adjustedToIndex : adjustedToIndex + 1;
         const newLevel =
-          toParent.child[Math.min(adjustedToIndex, toParent.child.length - 1)]?.level ||
-          toParent.level + 1;
-        toParent.child.splice(insertIndex, 0, recalculateLevels(movedNode, newLevel));
+          toParent.child[Math.min(adjustedToIndex, toParent.child.length - 1)]
+            ?.level ?? toParent.level + 1;
+        toParent.child.splice(
+          insertIndex,
+          0,
+          recalculateLevels(movedNode, newLevel)
+        );
       }
       setData(newData);
     } catch (error) {
@@ -241,9 +310,15 @@ export default function OrgChartEditor() {
     const isSelected = selectedPath?.join("-") === path.join("-");
     const isRoot = path.length === 0;
     const isDragging = draggedPath?.join("-") === path.join("-");
-    const isDropLeft = dropTarget?.path.join("-") === path.join("-") && dropTarget?.position === "left";
-    const isDropRight = dropTarget?.path.join("-") === path.join("-") && dropTarget?.position === "right";
-    const isDropChild = dropTarget?.path.join("-") === path.join("-") && dropTarget?.position === "child";
+    const isDropLeft =
+      dropTarget?.path.join("-") === path.join("-") &&
+      dropTarget?.position === "left";
+    const isDropRight =
+      dropTarget?.path.join("-") === path.join("-") &&
+      dropTarget?.position === "right";
+    const isDropChild =
+      dropTarget?.path.join("-") === path.join("-") &&
+      dropTarget?.position === "child";
     const hasChildren = node.child && node.child.length > 0;
 
     return (
@@ -345,17 +420,17 @@ export default function OrgChartEditor() {
             <div className="relative">
               {/* 수평 연결선 (SVG) */}
               {node.child!.length > 1 && (
-                <svg 
-                  className="absolute top-0 left-0 w-full overflow-visible" 
+                <svg
+                  className="absolute top-0 left-0 w-full overflow-visible"
                   height="2"
-                  style={{ transform: 'translateY(-1px)' }}
+                  style={{ transform: "translateY(-1px)" }}
                 >
-                  <line 
-                    x1="50" 
-                    y1="1" 
+                  <line
+                    x1="50"
+                    y1="1"
                     x2={`calc(100% - 50px)`}
-                    y2="1" 
-                    stroke="#9CA3AF" 
+                    y2="1"
+                    stroke="#9CA3AF"
                     strokeWidth="2"
                   />
                 </svg>
@@ -384,7 +459,17 @@ export default function OrgChartEditor() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold">조직도 관리</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold">조직도 관리</h2>
+          <button
+            onClick={handleUndo}
+            disabled={history.length === 0}
+            className="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Ctrl+Z"
+          >
+            ↩ 되돌리기 <span className="text-gray-400 text-xs">(Ctrl+Z)</span>
+          </button>
+        </div>
         <button
           onClick={saveData}
           disabled={saving}
@@ -394,7 +479,7 @@ export default function OrgChartEditor() {
         </button>
       </div>
 
-      <div 
+      <div
         className="flex justify-center py-8 overflow-auto min-h-[400px]"
         onClick={() => setSelectedPath(null)}
       >
@@ -404,6 +489,7 @@ export default function OrgChartEditor() {
       <div className="mt-6 p-4 bg-gray-100 rounded-lg text-sm text-gray-600 space-y-1">
         <p>• 노드를 <strong>드래그</strong>하여 좌/우/하위로 이동</p>
         <p>• 노드 <strong>클릭</strong> → 편집 버튼 (← ↓ → ×)</p>
+        <p>• <strong>Ctrl+Z</strong> 또는 되돌리기 버튼으로 최대 {MAX_HISTORY}단계 복구 가능</p>
       </div>
     </div>
   );
