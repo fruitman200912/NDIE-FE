@@ -1,6 +1,10 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { getFirebaseDb } from "@/lib/firebase";
+import { useUnsavedGuard } from "@/hooks/useUnsavedGuard";
+
+const DRAFT_KEY = "siteEditor_draft";
 
 export type SiteConfig = {
   // 메인 배너
@@ -119,11 +123,32 @@ export default function SiteEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState<SectionType>("banner");
-  const [hasChanges, setHasChanges] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  useUnsavedGuard(isDirty);
+
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  const draftRestoredRef = useRef(false);
 
   useEffect(() => {
     loadConfig();
   }, []);
+
+  useEffect(() => {
+    if (!isDirty) return;
+
+    const interval = setInterval(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(configRef.current));
+        toast.info("임시 저장되었습니다.", { duration: 2000 });
+      } catch {
+      }
+    }, 30_000);
+
+    return () => clearInterval(interval);
+  }, [isDirty]);
 
   const loadConfig = async () => {
     try {
@@ -152,6 +177,27 @@ export default function SiteEditor() {
     } finally {
       setLoading(false);
     }
+
+    if (draftRestoredRef.current) return;
+    draftRestoredRef.current = true;
+
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as SiteConfig;
+      const ok = window.confirm(
+        "이전에 저장되지 않은 임시 데이터가 있습니다.\n복원하시겠습니까?"
+      );
+      if (ok) {
+        setConfig(draft);
+        setIsDirty(true);
+        toast.success("임시 저장 데이터를 복원했습니다.");
+      } else {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    } catch {
+      localStorage.removeItem(DRAFT_KEY);
+    }
   };
 
   const saveConfig = async () => {
@@ -162,11 +208,12 @@ export default function SiteEditor() {
 
       const { doc, setDoc } = await import("firebase/firestore");
       await setDoc(doc(db, "siteConfig", "main"), config);
-      alert("저장되었습니다!");
-      setHasChanges(false);
+      localStorage.removeItem(DRAFT_KEY);
+      setIsDirty(false);
+      toast.success("저장되었습니다!");
     } catch (e) {
       console.error("저장 실패:", e);
-      alert("저장에 실패했습니다.");
+      toast.error("저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
@@ -184,13 +231,13 @@ export default function SiteEditor() {
         [field]: value,
       },
     }));
-    setHasChanges(true);
+    setIsDirty(true);
   };
 
   const resetToDefault = () => {
     if (confirm("모든 설정을 기본값으로 초기화하시겠습니까?")) {
       setConfig(defaultConfig);
-      setHasChanges(true);
+      setIsDirty(true);
     }
   };
 
@@ -211,7 +258,7 @@ export default function SiteEditor() {
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold">사이트 디자인 편집</h2>
-          {hasChanges && (
+          {isDirty && (
             <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full">
               저장되지 않은 변경사항
             </span>
@@ -226,7 +273,7 @@ export default function SiteEditor() {
           </button>
           <button
             onClick={saveConfig}
-            disabled={saving || !hasChanges}
+            disabled={saving || !isDirty}
             className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50"
           >
             {saving ? "저장 중..." : "저장하기"}
@@ -256,7 +303,7 @@ export default function SiteEditor() {
       <div className="space-y-6">
         {activeSection === "banner" && <BannerEditor config={config} updateConfig={updateConfig} />}
         {activeSection === "intro" && <IntroEditor config={config} updateConfig={updateConfig} />}
-        {activeSection === "header" && <HeaderEditor config={config} updateConfig={updateConfig} setConfig={setConfig} setHasChanges={setHasChanges} />}
+        {activeSection === "header" && <HeaderEditor config={config} updateConfig={updateConfig} setConfig={setConfig} setIsDirty={setIsDirty} />}
         {activeSection === "theme" && <ThemeEditor config={config} updateConfig={updateConfig} />}
         {activeSection === "footer" && <FooterEditor config={config} updateConfig={updateConfig} />}
         {activeSection === "social" && <SocialEditor config={config} updateConfig={updateConfig} />}
@@ -279,7 +326,7 @@ type EditorProps = {
 
 type HeaderEditorProps = EditorProps & {
   setConfig: React.Dispatch<React.SetStateAction<SiteConfig>>;
-  setHasChanges: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsDirty: React.Dispatch<React.SetStateAction<boolean>>;
 };
 
 // 배너 에디터
@@ -422,7 +469,7 @@ function IntroEditor({ config, updateConfig }: EditorProps) {
 }
 
 // 헤더/메뉴 에디터
-function HeaderEditor({ config, updateConfig, setConfig, setHasChanges }: HeaderEditorProps) {
+function HeaderEditor({ config, updateConfig, setConfig, setIsDirty }: HeaderEditorProps) {
   const addMenuItem = () => {
     setConfig((prev) => ({
       ...prev,
@@ -431,7 +478,7 @@ function HeaderEditor({ config, updateConfig, setConfig, setHasChanges }: Header
         menuItems: [...prev.header.menuItems, { label: "새 메뉴", href: "/", visible: true }],
       },
     }));
-    setHasChanges(true);
+    setIsDirty(true);
   };
 
   const updateMenuItem = (index: number, field: string, value: string | boolean) => {
@@ -444,7 +491,7 @@ function HeaderEditor({ config, updateConfig, setConfig, setHasChanges }: Header
         ),
       },
     }));
-    setHasChanges(true);
+    setIsDirty(true);
   };
 
   const removeMenuItem = (index: number) => {
@@ -455,7 +502,7 @@ function HeaderEditor({ config, updateConfig, setConfig, setHasChanges }: Header
         menuItems: prev.header.menuItems.filter((_, i) => i !== index),
       },
     }));
-    setHasChanges(true);
+    setIsDirty(true);
   };
 
   return (
