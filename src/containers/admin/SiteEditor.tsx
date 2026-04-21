@@ -128,9 +128,11 @@ export default function SiteEditor() {
   useUnsavedGuard(isDirty);
 
   const configRef = useRef(config);
-  configRef.current = config;
-
   const draftRestoredRef = useRef(false);
+
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   useEffect(() => {
     loadConfig();
@@ -151,52 +153,56 @@ export default function SiteEditor() {
   }, [isDirty]);
 
   const loadConfig = async () => {
+    let draftRestored = false;
+    if (!draftRestoredRef.current) {
+      draftRestoredRef.current = true;
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (raw) {
+          const draft = JSON.parse(raw) as SiteConfig;
+          const ok = window.confirm(
+            "이전에 저장되지 않은 임시 데이터가 있습니다.\n복원하시겠습니까?"
+          );
+          if (ok) {
+            setConfig(draft);
+            setIsDirty(true);
+            toast.success("임시 저장 데이터를 복원했습니다.");
+            draftRestored = true;
+          } else {
+            localStorage.removeItem(DRAFT_KEY);
+          }
+        }
+      } catch {
+        localStorage.removeItem(DRAFT_KEY);
+      }
+    }
+
     try {
       const db = await getFirebaseDb();
-      if (!db) return;
-
-      const { doc, getDoc } = await import("firebase/firestore");
-      const docRef = doc(db, "siteConfig", "main");
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setConfig({
-          ...defaultConfig,
-          ...data,
-          banner: { ...defaultConfig.banner, ...data.banner },
-          intro: { ...defaultConfig.intro, ...data.intro },
-          theme: { ...defaultConfig.theme, ...data.theme },
-          footer: { ...defaultConfig.footer, ...data.footer },
-          header: { ...defaultConfig.header, ...data.header },
-          social: { ...defaultConfig.social, ...data.social },
-          seo: { ...defaultConfig.seo, ...data.seo },
-        });
+      if (db) {
+        const { doc, getDoc } = await import("firebase/firestore");
+        const docRef = doc(db, "siteConfig", "main");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists() && !draftRestored) {
+          const data = docSnap.data();
+          setConfig({
+            ...defaultConfig,
+            ...data,
+            banner: { ...defaultConfig.banner, ...data.banner },
+            intro: { ...defaultConfig.intro, ...data.intro },
+            theme: { ...defaultConfig.theme, ...data.theme },
+            footer: { ...defaultConfig.footer, ...data.footer },
+            header: { ...defaultConfig.header, ...data.header },
+            social: { ...defaultConfig.social, ...data.social },
+            seo: { ...defaultConfig.seo, ...data.seo },
+          });
+        }
       }
     } catch (e) {
       console.error("사이트 설정 로드 실패:", e);
+      if (!draftRestored) setConfig(defaultConfig);
     } finally {
       setLoading(false);
-    }
-
-    if (draftRestoredRef.current) return;
-    draftRestoredRef.current = true;
-
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      const draft = JSON.parse(raw) as SiteConfig;
-      const ok = window.confirm(
-        "이전에 저장되지 않은 임시 데이터가 있습니다.\n복원하시겠습니까?"
-      );
-      if (ok) {
-        setConfig(draft);
-        setIsDirty(true);
-        toast.success("임시 저장 데이터를 복원했습니다.");
-      } else {
-        localStorage.removeItem(DRAFT_KEY);
-      }
-    } catch {
-      localStorage.removeItem(DRAFT_KEY);
     }
   };
 
@@ -210,10 +216,10 @@ export default function SiteEditor() {
       await setDoc(doc(db, "siteConfig", "main"), config);
       localStorage.removeItem(DRAFT_KEY);
       setIsDirty(false);
-      toast.success("저장되었습니다!");
+      alert("저장되었습니다!");
     } catch (e) {
       console.error("저장 실패:", e);
-      toast.error("저장에 실패했습니다.");
+      alert("저장에 실패했습니다.");
     } finally {
       setSaving(false);
     }
